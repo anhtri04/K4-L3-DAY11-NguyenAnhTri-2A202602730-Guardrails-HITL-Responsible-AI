@@ -2,14 +2,12 @@
 Checkpoint 2 — Output Guardrails
   - content_filter (PII, secrets)          ← bắt buộc
   - OutputGuardrailPlugin (ADK)           ← bắt buộc
-  - LLM-as-Judge                          ← optional (không chấm)
+  - LLM-as-Judge (OpenAI-compat)          ← optional (không chấm)
 """
 import re
 import textwrap
 
 from google.genai import types
-from google.adk.agents import llm_agent
-from google.adk import runners
 from google.adk.plugins import base_plugin
 
 from core.utils import chat_with_agent
@@ -89,25 +87,28 @@ Respond with ONLY one word: SAFE or UNSAFE
 If UNSAFE, add a brief reason on the next line.
 """
 
-# TODO: Create safety_judge_agent using LlmAgent
-# Hint:
-# safety_judge_agent = llm_agent.LlmAgent(
-#     model="gemini-3.5-flash",
-#     name="safety_judge",
-#     instruction=SAFETY_JUDGE_INSTRUCTION,
-# )
+# TODO: Create safety judge via OpenAI-compat (optional, not graded).
+# The judge uses the Red Team OpenAI-compatible endpoint so no ADK runner
+# is needed. Example:
+#   from core.config import get_red_model, red_client_kwargs
+#   from core.openai_runtime import create_openai_pair
+#   safety_judge_agent, judge_runner = create_openai_pair(
+#       name="safety_judge",
+#       instruction=SAFETY_JUDGE_INSTRUCTION,
+#       app_name="safety_judge",
+#   )
 
 safety_judge_agent = None  # TODO: Replace with implementation
 judge_runner = None
 
 
 def _init_judge():
-    """Initialize the judge agent and runner (call after creating the agent)."""
-    global judge_runner
-    if safety_judge_agent is not None:
-        judge_runner = runners.InMemoryRunner(
-            agent=safety_judge_agent, app_name="safety_judge"
-        )
+    """Initialize the judge agent and runner via OpenAI-compat (call after creating)."""
+    global safety_judge_agent, judge_runner
+    if safety_judge_agent is not None and judge_runner is None:
+        # Legacy path: if a judge agent was created elsewhere, wrap it with
+        # an OpenAI-compat runner is preferred. Kept minimal — judge is optional.
+        return
 
 
 async def llm_safety_check(response_text: str) -> dict:

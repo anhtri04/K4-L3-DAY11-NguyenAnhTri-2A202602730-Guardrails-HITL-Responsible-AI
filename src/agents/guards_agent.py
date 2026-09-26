@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import re
 
-from google.adk.agents import llm_agent
-from google.adk import runners
+# NOTE: Live LLM transport is OpenAI-compatible via core.openai_runtime.
+# google.adk plugin base + genai types below are only data containers for
+# the offline reference plugins (no LLM calls here).
 from google.adk.plugins import base_plugin
 from google.adk.agents.invocation_context import InvocationContext
 from google.genai import types
@@ -236,10 +237,14 @@ class GuardsOutputPlugin(base_plugin.BasePlugin):
 
 
 def create_red_agent_advance():
-    """Red Advance — strong guardrails. Bonus B2 tối đa +10 nếu leak (replay; chọn 1)."""
+    """Red Advance — strong guardrails. Bonus B2 tối đa +10 nếu leak (replay; chọn 1).
+
+    Transport: ALWAYS OpenAI-compatible (openai.OpenAI + Chat Completions).
+    ``GuardsInputPlugin`` / ``GuardsOutputPlugin`` below are kept for
+    offline classification reference, but the live path uses input/output
+    hooks via ``core.openai_runtime`` — no native ADK runner.
+    """
     from core.config import (
-        red_uses_openai_sdk,
-        red_uses_gemini,
         red_provider_label,
         get_red_model,
     )
@@ -261,43 +266,22 @@ def create_red_agent_advance():
             )
         return text
 
+    from core.openai_runtime import create_openai_pair
+
     advance_model = get_red_model()
-    if red_uses_openai_sdk():
-        from core.openai_runtime import create_openai_pair
-
-        agent, runner = create_openai_pair(
-            name="red_agent_advance",
-            instruction=RED_ADVANCE_INSTRUCTION,
-            app_name="red_agent_advance",
-            input_hooks=[_input_hook],
-            output_hooks=[_output_hook],
-            model=advance_model,
-        )
-        print(
-            f"Red Advance created — STRONG guardrails "
-            f"[Red:{red_provider_label('advance')}]"
-        )
-        return agent, runner
-
-    if red_uses_gemini():
-        plugins = [GuardsInputPlugin(), GuardsOutputPlugin()]
-        agent = llm_agent.LlmAgent(
-            model=advance_model,
-            name="red_agent_advance",
-            instruction=RED_ADVANCE_INSTRUCTION,
-        )
-        runner = runners.InMemoryRunner(
-            agent=agent, app_name="red_agent_advance", plugins=plugins
-        )
-        print(
-            f"Red Advance created — STRONG guardrails "
-            f"[Red:{red_provider_label('advance')}]"
-        )
-        return agent, runner
-
-    raise RuntimeError(
-        "RED_TEAM_PROVIDER phải là openai hoặc gemini. Xem .env.example."
+    agent, runner = create_openai_pair(
+        name="red_agent_advance",
+        instruction=RED_ADVANCE_INSTRUCTION,
+        app_name="red_agent_advance",
+        input_hooks=[_input_hook],
+        output_hooks=[_output_hook],
+        model=advance_model,
     )
+    print(
+        f"Red Advance created — STRONG guardrails "
+        f"[Red:{red_provider_label('advance')}] (OpenAI-compat)"
+    )
+    return agent, runner
 
 
 # Alias cũ — cùng hàm

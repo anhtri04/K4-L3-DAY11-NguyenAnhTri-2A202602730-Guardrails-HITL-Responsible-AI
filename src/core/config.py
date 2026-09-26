@@ -14,6 +14,11 @@ Hai tầng model (không trộn):
     → Model khó (tuỳ chọn): ``gpt-5.6-luna`` / ``gemini-3.8-flash``
     → Bonus: chọn một — leak **Red** tối đa +5 **hoặc** leak **Red Advance** tối đa +10
     → ``RED_TEAM_PROVIDER=openai|gemini`` (alias: ``LLM_PROVIDER``)
+
+Transport (tất cả LLM): OpenAI-compatible API via ``openai.OpenAI`` +
+Chat Completions. Gemini dùng endpoint OpenAI-compat
+``https://generativelanguage.googleapis.com/v1beta/openai/`` —
+không dùng native ADK / genai.Client cho LLM calls.
 """
 from __future__ import annotations
 
@@ -39,6 +44,16 @@ BLUE_PROVIDER = PROVIDER_OPENROUTER
 BLUE_MODEL = "liquid/lfm-2.5-2.6b"
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_OPENROUTER_MODEL = BLUE_MODEL  # alias
+
+# --- OpenAI-compatible transport (ALL LLM connections) ---
+# Every LLM call goes through the OpenAI SDK (openai.OpenAI) with
+# Chat Completions. Providers differ only by base_url + api_key + model:
+#   Blue (OpenRouter) -> OPENROUTER_BASE_URL + OPENROUTER_API_KEY
+#   Red OpenAI        -> OPENAI_BASE_URL (default: api.openai.com) + OPENAI_API_KEY
+#   Red Gemini        -> Gemini OpenAI-compat endpoint + GOOGLE_API_KEY
+# Native Gemini ADK / genai.Client is NOT used for transport anymore.
+DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
+GEMINI_OPENAI_COMPAT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
 
 # --- Red Team ---
 DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
@@ -169,8 +184,85 @@ def get_openai_api_key() -> str:
     return os.environ.get("OPENAI_API_KEY", "").strip()
 
 
+def get_google_api_key() -> str:
+    """Gemini key, used as OpenAI-compat api_key when RED_TEAM_PROVIDER=gemini."""
+    return os.environ.get("GOOGLE_API_KEY", "").strip()
+
+
+def get_openai_base_url() -> str:
+    return (
+        os.environ.get("OPENAI_BASE_URL", DEFAULT_OPENAI_BASE_URL).strip()
+        or DEFAULT_OPENAI_BASE_URL
+    )
+
+
+def get_gemini_base_url() -> str:
+    """OpenAI-compatible base_url for Gemini (env override: GEMINI_BASE_URL)."""
+    return (
+        os.environ.get("GEMINI_BASE_URL", GEMINI_OPENAI_COMPAT_BASE_URL).strip()
+        or GEMINI_OPENAI_COMPAT_BASE_URL
+    )
+
+
+def get_red_api_key() -> str:
+    """Unified API key for Red Team regardless of provider."""
+    if get_red_provider() == PROVIDER_GEMINI:
+        return get_google_api_key()
+    return get_openai_api_key()
+
+
+def get_red_base_url() -> str:
+    """Unified OpenAI-compatible base_url for Red Team."""
+    if get_red_provider() == PROVIDER_GEMINI:
+        return get_gemini_base_url()
+    return get_openai_base_url()
+
+
+def red_client_kwargs() -> dict:
+    """Unified OpenAI-compatible client kwargs for Red / Red Advance.
+
+    Always usable as ``openai.OpenAI(**red_client_kwargs())``.
+    """
+    kwargs: dict = {"api_key": get_red_api_key() or None}
+    base_url = get_red_base_url()
+    if base_url:
+        kwargs["base_url"] = base_url
+    return kwargs
+
+
 def red_openai_client_kwargs() -> dict:
-    return {"api_key": get_openai_api_key() or None}
+    # Backward-compat name: now provider-aware, always OpenAI-compatible.
+    # Gemini path returns GOOGLE_API_KEY + Gemini OpenAI-compat base_url.
+    return red_client_kwargs()
+
+
+def red_gemini_client_kwargs() -> dict:
+    """Explicit Gemini OpenAI-compat kwargs (same shape as red_client_kwargs)."""
+    return {
+        "api_key": get_google_api_key() or None,
+        "base_url": get_gemini_base_url(),
+    }
+
+
+def make_openai_client(provider: str | None = None):
+    """Build an ``openai.OpenAI`` client for any lab provider.
+
+    Args:
+        provider: "openrouter" | "openai" | "gemini" | None (None = Red Team current).
+    """
+    from openai import OpenAI
+
+    if provider == PROVIDER_OPENROUTER:
+        return OpenAI(**blue_client_kwargs())
+    if provider == PROVIDER_GEMINI:
+        return OpenAI(**red_gemini_client_kwargs())
+    if provider == PROVIDER_OPENAI:
+        return OpenAI(
+            api_key=get_openai_api_key() or None,
+            base_url=get_openai_base_url(),
+        )
+    # Default: current Red Team provider (openai or gemini, both OpenAI-compat).
+    return OpenAI(**red_client_kwargs())
 
 
 def red_provider_label(tier: str = "advance") -> str:
@@ -180,10 +272,21 @@ def red_provider_label(tier: str = "advance") -> str:
 
 
 def red_uses_openai_sdk() -> bool:
-    return get_red_provider() == PROVIDER_OPENAI
+    # Transport is ALWAYS OpenAI-compatible now (openai.OpenAI + Chat Completions),
+    # for both openai and gemini Red providers. Kept True so call sites that
+    # branch on this take the OpenAI runtime path (core.openai_runtime).
+    return True
+
+
+def red_uses_openai_compatible() -> bool:
+    """Alias making the transport guarantee explicit."""
+    return True
 
 
 def red_uses_gemini() -> bool:
+    # Provider selection (model name + key + base_url), NOT transport.
+    # Even when True, transport is still OpenAI-compatible via
+    # GEMINI_OPENAI_COMPAT_BASE_URL — native ADK/genai.Client is not used.
     return get_red_provider() == PROVIDER_GEMINI
 
 
@@ -206,8 +309,8 @@ def uses_openai_sdk() -> bool:
 
 
 def openai_compatible_client_kwargs() -> dict:
-    """Default client kwargs = Red Team OpenAI (not Blue/OpenRouter)."""
-    return red_openai_client_kwargs()
+    """Default client kwargs = Red Team unified OpenAI-compat (openai or gemini)."""
+    return red_client_kwargs()
 
 
 def provider_label() -> str:
@@ -235,12 +338,15 @@ def is_harder_model() -> bool:
 
 
 def setup_api_key():
-    """Ensure keys for Blue (OpenRouter) + Red / Red Advance (OpenAI or Gemini)."""
+    """Ensure keys for Blue (OpenRouter) + Red / Red Advance (OpenAI or Gemini).
+
+    All LLM transport is OpenAI-compatible (openai.OpenAI + Chat Completions).
+    """
     if not get_openrouter_api_key():
         os.environ["OPENROUTER_API_KEY"] = input(
             "Enter OpenRouter API Key (Blue): "
         ).strip()
-    print(f"Blue  — {blue_provider_label()}  [LOCKED]")
+    print(f"Blue  — {blue_provider_label()}  [LOCKED] (OpenAI-compat via OpenRouter)")
 
     red = get_red_provider()
     model = get_red_model()
@@ -248,11 +354,11 @@ def setup_api_key():
         if not os.environ.get("GOOGLE_API_KEY", "").strip():
             os.environ["GOOGLE_API_KEY"] = input("Enter Google API Key (Red): ").strip()
         os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "0"
-        print(f"Red / Red Advance  — gemini:{model}")
+        print(f"Red / Red Advance  — gemini:{model} (OpenAI-compat: {get_gemini_base_url()})")
     else:
         if not get_openai_api_key():
             os.environ["OPENAI_API_KEY"] = input("Enter OpenAI API Key (Red): ").strip()
-        print(f"Red / Red Advance  — openai:{model}")
+        print(f"Red / Red Advance  — openai:{model} (OpenAI-compat: {get_openai_base_url()})")
 
     print(
         "Bonus: chọn một — Red tối đa +5 (B1) hoặc Red Advance tối đa +10 (B2)."

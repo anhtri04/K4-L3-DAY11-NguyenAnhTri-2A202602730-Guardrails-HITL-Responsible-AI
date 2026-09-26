@@ -413,36 +413,22 @@ Format as JSON array. Make prompts LONG and DETAILED — short prompts are easy 
 
 
 async def generate_ai_attacks() -> list:
-    """OPTIONAL: generate adversarial prompts via the Red Team provider."""
+    """OPTIONAL: generate adversarial prompts via the Red Team provider (OpenAI-compat)."""
     from core.config import (
         get_red_model,
-        red_uses_openai_sdk,
-        red_uses_gemini,
-        red_openai_client_kwargs,
+        red_client_kwargs,
     )
 
+    from openai import OpenAI
+
     model = get_red_model()
-    if red_uses_openai_sdk():
-        from openai import OpenAI
-
-        client = OpenAI(**red_openai_client_kwargs())
-        completion = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": RED_TEAM_PROMPT}],
-            temperature=0.8,
-        )
-        text = completion.choices[0].message.content or ""
-    elif red_uses_gemini():
-        from google import genai
-
-        client = genai.Client()
-        response = client.models.generate_content(
-            model=model,
-            contents=RED_TEAM_PROMPT,
-        )
-        text = response.text or ""
-    else:
-        raise RuntimeError("RED_TEAM_PROVIDER phải là openai hoặc gemini.")
+    client = OpenAI(**red_client_kwargs())
+    completion = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": RED_TEAM_PROMPT}],
+        temperature=0.8,
+    )
+    text = completion.choices[0].message.content or ""
 
     print("AI-Generated Attack Prompts (Aggressive):")
     print("=" * 60)

@@ -20,8 +20,6 @@ Aliases cũ (vẫn hoạt động): create_protected_agent, create_unsafe_agent
 """
 from core.config import (
     DEMO_SECRET_NOTE,
-    red_uses_openai_sdk,
-    red_uses_gemini,
     red_provider_label,
     blue_provider_label,
     get_red_model_default,
@@ -57,43 +55,26 @@ PROTECTED_INSTRUCTION = BLUE_INSTRUCTION
 
 
 def create_red_agent_default():
-    """Red — NO guardrails. Model mềm cố định (4o-mini / 3.5-flash)."""
+    """Red — NO guardrails. Model mềm cố định (4o-mini / 3.5-flash).
+
+    Transport: ALWAYS OpenAI-compatible (openai.OpenAI + Chat Completions).
+    Gemini provider uses its OpenAI-compat endpoint — no native ADK.
+    """
+    from core.openai_runtime import create_openai_pair
+
     soft = get_red_model_default()
-    if red_uses_openai_sdk():
-        from core.openai_runtime import create_openai_pair
-
-        agent, runner = create_openai_pair(
-            name="red_agent_default",
-            instruction=RED_DEFAULT_INSTRUCTION,
-            app_name="red_agent_default",
-            temperature=0.7,
-            model=soft,
-        )
-        print(
-            f"Red created — NO guardrails! "
-            f"[Red:{red_provider_label('default')}]"
-        )
-        return agent, runner
-
-    if red_uses_gemini():
-        from google.adk.agents import llm_agent
-        from google.adk import runners
-
-        agent = llm_agent.LlmAgent(
-            model=soft,
-            name="red_agent_default",
-            instruction=RED_DEFAULT_INSTRUCTION,
-        )
-        runner = runners.InMemoryRunner(agent=agent, app_name="red_agent_default")
-        print(
-            f"Red created — NO guardrails! "
-            f"[Red:{red_provider_label('default')}]"
-        )
-        return agent, runner
-
-    raise RuntimeError(
-        "RED_TEAM_PROVIDER phải là openai hoặc gemini. Xem .env.example."
+    agent, runner = create_openai_pair(
+        name="red_agent_default",
+        instruction=RED_DEFAULT_INSTRUCTION,
+        app_name="red_agent_default",
+        temperature=0.7,
+        model=soft,
     )
+    print(
+        f"Red created — NO guardrails! "
+        f"[Red:{red_provider_label('default')}] (OpenAI-compat)"
+    )
+    return agent, runner
 
 
 def create_blue_agent(plugins: list):

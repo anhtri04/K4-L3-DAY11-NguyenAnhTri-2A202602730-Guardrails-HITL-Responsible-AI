@@ -1,10 +1,12 @@
 """
-OpenAI SDK runtime — dùng cho:
+OpenAI-compatible SDK runtime — dùng cho TẤT CẢ LLM connections:
 
   Blue Team → OpenRouter liquid/lfm-2.5-2.6b (create_blue_pair)
-  Red Team  → OpenAI gpt-4o-mini (create_openai_pair) khi RED_TEAM_PROVIDER=openai
+  Red Team  → OpenAI gpt-4o-mini hoặc Gemini OpenAI-compat endpoint
+              (create_openai_pair) cho cả RED_TEAM_PROVIDER=openai|gemini
 
-Gemini Red Team dùng Google ADK trong agents/*.py — không đi qua file này.
+Native Gemini ADK / genai.Client is NOT used for LLM calls. ADK plugin
+base + genai types are only data containers for guardrail callbacks.
 """
 from __future__ import annotations
 
@@ -217,7 +219,11 @@ def create_openai_pair(
     temperature: float = 0.4,
     model: str | None = None,
 ) -> tuple[OpenAIAgent, OpenAIRunner]:
-    """Red Team OpenAI path (default = soft model; advance may pass harder)."""
+    """Red Team OpenAI-compat path (openai AND gemini providers).
+
+    Uses ``red_client_kwargs()`` so Gemini goes through its OpenAI-compatible
+    endpoint with GOOGLE_API_KEY. ``model`` defaults to ``get_red_model()``.
+    """
     return _make_pair(
         name=name,
         instruction=instruction,
@@ -228,5 +234,24 @@ def create_openai_pair(
         plugins=plugins,
         input_hooks=input_hooks,
         output_hooks=output_hooks,
+        temperature=temperature,
+    )
+
+
+def create_judge_pair(
+    *,
+    name: str = "safety_judge",
+    instruction: str = "",
+    app_name: str = "safety_judge",
+    temperature: float = 0.0,
+) -> tuple[OpenAIAgent, OpenAIRunner]:
+    """Optional LLM-as-Judge via the same Red OpenAI-compat transport."""
+    return _make_pair(
+        name=name,
+        instruction=instruction,
+        app_name=app_name,
+        model=get_red_model(),
+        provider=get_red_provider(),
+        client_kwargs=red_openai_client_kwargs(),
         temperature=temperature,
     )

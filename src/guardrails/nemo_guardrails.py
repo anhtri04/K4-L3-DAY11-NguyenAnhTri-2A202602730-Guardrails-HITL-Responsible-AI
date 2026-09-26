@@ -13,14 +13,17 @@ except ImportError:
 
 
 # ============================================================
-# NeMo YAML config — model and rails settings
+# NeMo YAML config — model and rails settings (OpenAI-compat)
 # ============================================================
+# NOTE: All LLM calls use OpenAI-compatible API. For NeMo, use the
+# openai engine with the Red Team model, or point base_url at the
+# Gemini OpenAI-compat endpoint when RED_TEAM_PROVIDER=gemini.
 
 NEMO_YAML_CONFIG = textwrap.dedent("""\
     models:
       - type: main
-        engine: google
-        model: gemini-3.5-flash
+        engine: openai
+        model: gpt-4o-mini
 
     rails:
       input:
