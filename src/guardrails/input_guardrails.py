@@ -28,6 +28,17 @@ def _normalize(text: str) -> str:
     normalized = unicodedata.normalize("NFKC", text or "")
     return normalized.translate(str.maketrans("", "", _ZERO_WIDTH))
 
+
+def _strip_diacritics(text: str) -> str:
+    """Fold accented chars to ASCII so `tài khoản` matches topic `tai khoan`.
+
+    Only used for topic matching (never for block messaging): đ/Đ is handled
+    explicitly since it does not decompose under NFD.
+    """
+    decomposed = unicodedata.normalize("NFD", text or "")
+    stripped = "".join(c for c in decomposed if unicodedata.category(c) != "Mn")
+    return stripped.replace("đ", "d").replace("Đ", "D")
+
 # Quyết định rõ ràng — tránh đảo nghĩa True/False
 InputStatus = Literal["ALLOW", "BLOCK"]
 
@@ -104,12 +115,14 @@ def topic_filter(user_input: str) -> InputStatus:
         ``"ALLOW"`` = cho qua (câu banking hợp lệ).
     """
     input_lower = user_input.lower()
+    # Diacritic-folded copy so Vietnamese with accents still matches topics.
+    folded = _strip_diacritics(input_lower)
 
     for blocked in BLOCKED_TOPICS:
-        if blocked.lower() in input_lower:
+        if blocked.lower() in input_lower or blocked.lower() in folded:
             return "BLOCK"
     for allowed in ALLOWED_TOPICS:
-        if allowed.lower() in input_lower:
+        if allowed.lower() in input_lower or allowed.lower() in folded:
             return "ALLOW"
     return "BLOCK"
 
