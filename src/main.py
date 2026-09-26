@@ -167,9 +167,24 @@ if __name__ == "__main__":
         choices=[2, 3, 4],
         help="2=CP2 guardrails · 3=CP3 suite · 4=CP4 red-team",
     )
+    parser.add_argument(
+        "--chat",
+        choices=["blue", "red", "red_advance"],
+        help="Interactive Rich chat demo (guardrail testing, not graded)",
+    )
+    parser.add_argument(
+        "--window",
+        type=int,
+        default=20,
+        help="Chat sliding-window context size in messages (default 20)",
+    )
     args = parser.parse_args()
 
-    if args.part:
+    if args.chat:
+        from chat_cli import run_chat
+
+        asyncio.run(run_chat(args.chat, max(2, args.window)))
+    elif args.part:
         asyncio.run(main(parts=[args.part]))
     else:
         asyncio.run(main())

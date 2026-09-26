@@ -53,7 +53,12 @@ class OpenAIRunner:
 
         return OpenAI(**(self.client_kwargs or {}))
 
-    async def chat(self, agent: OpenAIAgent, user_message: str) -> str:
+    async def chat(
+        self,
+        agent: OpenAIAgent,
+        user_message: str,
+        history: list[dict] | None = None,
+    ) -> str:
         for hook in self.input_hooks:
             blocked = hook(user_message)
             if blocked:
@@ -64,12 +69,15 @@ class OpenAIRunner:
             return block_msg
 
         client = self._client()
+        messages: list[dict] = [{"role": "system", "content": agent.instruction}]
+        if history:
+            # Sliding-window context: only the newest turn is guardrailed above;
+            # older turns are plain LLM context (role/content dicts).
+            messages.extend(history)
+        messages.append({"role": "user", "content": user_message})
         completion = client.chat.completions.create(
             model=self.model,
-            messages=[
-                {"role": "system", "content": agent.instruction},
-                {"role": "user", "content": user_message},
-            ],
+            messages=messages,
             temperature=self.temperature,
         )
         text = (completion.choices[0].message.content or "").strip()
